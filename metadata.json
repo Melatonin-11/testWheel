@@ -1,0 +1,6 @@
+{
+  "name": "Idle Wheel Tycoon",
+  "description": "An addictive vertical-screen mobile incremental game. Spin lucky wheels, upgrade winning sectors, hire automated dealers, hit fever jackpots, and earn offline rewards!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
