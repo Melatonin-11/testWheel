@@ -9,6 +9,7 @@ interface HeaderProps {
   feverEnergy: number;
   isFeverMode: boolean;
   feverTimeRemaining: number;
+  feverDuration: number;
   soundEnabled: boolean;
   onToggleSound: () => void;
   onResetSave?: () => void;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   feverEnergy,
   isFeverMode,
   feverTimeRemaining,
+  feverDuration,
   soundEnabled,
   onToggleSound,
   onResetSave,
@@ -128,7 +130,7 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-gradient-to-r from-red-500 via-amber-400 to-yellow-300 animate-pulse shadow-lg shadow-amber-500/50'
                 : 'bg-gradient-to-r from-amber-600 to-yellow-400'
             }`}
-            style={{ width: `${isFeverMode ? (feverTimeRemaining / 15) * 100 : feverEnergy}%` }}
+            style={{ width: `${isFeverMode ? Math.min(100, (feverTimeRemaining / feverDuration) * 100) : feverEnergy}%` }}
           />
         </div>
       </div>
