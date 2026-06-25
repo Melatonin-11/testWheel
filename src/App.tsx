@@ -97,12 +97,16 @@ export default function App() {
   const getSpinDuration = useCallback((wheel: WheelData, s: GameState) => {
     let dur = wheel.spinDuration;
     if (s.relics['relic_perpetual']) dur *= 0.7;
-    if (s.isFeverMode) return dur / 3;
+    if (s.isFeverMode) dur /= 3;
     if (wheel.autoDealerLevel > 0) {
       const dealerSpeedBonus = 1 + (wheel.autoDealerLevel - 1) * 0.10 + (s.upgrades['up_auto_speed'] || 0) * 0.12;
       dur /= dealerSpeedBonus;
     }
     return Math.max(0.3, dur);
+  }, []);
+
+  const getFeverDuration = useCallback((s: GameState) => {
+    return s.relics['relic_god_gambler'] ? 30 : 15;
   }, []);
 
   useEffect(() => {
@@ -118,9 +122,12 @@ export default function App() {
 
       state.wheels.forEach((w) => {
         if (w.unlocked && w.autoDealerLevel > 0) {
-          const spinDur = w.spinDuration / (1 + (w.autoDealerLevel - 1) * 0.10);
-          const winCh = Math.min(0.85, w.winChance + (state.upgrades['up_sector_size'] || 0) * 0.04);
-          const expectedRewardPerSpin = w.baseReward * w.level * globMult * winCh;
+          const spinDur = getSpinDuration(w, state);
+          const winCh = getWinChance(w, state);
+          const jackpotCh = getJackpotChance(w, state);
+          const regularWinReward = w.baseReward * w.level * globMult;
+          const jackpotBonusReward = regularWinReward * 9 * jackpotCh;
+          const expectedRewardPerSpin = winCh * (regularWinReward + jackpotBonusReward);
           totalOfflineRatePerSec += expectedRewardPerSpin / spinDur;
         }
       });
@@ -281,7 +288,7 @@ export default function App() {
                   nextFeverEnergy = Math.min(100, nextFeverEnergy + feverGain);
                   if (nextFeverEnergy >= 100) {
                     nextIsFever = true;
-                    nextFeverTime = prev.relics['relic_god_gambler'] ? 30 : 15;
+                    nextFeverTime = getFeverDuration(prev);
                     nextStats.feverActivations += 1;
                     sound.playFever();
                   }
@@ -317,7 +324,7 @@ export default function App() {
     }, TICK_RATE * 1000);
 
     return () => clearInterval(timer);
-  }, [startWheelSpin]);
+  }, [getFeverDuration, startWheelSpin]);
 
   useEffect(() => {
     const saveTimer = setInterval(() => {
@@ -480,6 +487,7 @@ export default function App() {
         feverEnergy={state.feverEnergy}
         isFeverMode={state.isFeverMode}
         feverTimeRemaining={state.feverTimeRemaining}
+        feverDuration={getFeverDuration(state)}
         soundEnabled={state.soundEnabled}
         onToggleSound={() => setState((p) => ({ ...p, soundEnabled: !p.soundEnabled }))}
         onResetSave={handleResetSave}
@@ -511,6 +519,7 @@ export default function App() {
                     key={wheel.id}
                     wheel={wheel}
                     globalMultiplier={globMult}
+                    actualWinChance={getWinChance(wheel, state)}
                     isFever={state.isFeverMode}
                     canUnlock={canUnlock}
                     canUpgrade={canUpgrade}

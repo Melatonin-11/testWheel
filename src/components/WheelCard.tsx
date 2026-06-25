@@ -8,6 +8,7 @@ import { Lock, Zap, TrendingUp, Bot } from 'lucide-react';
 interface WheelCardProps {
   wheel: WheelData;
   globalMultiplier: number;
+  actualWinChance: number;
   isFever: boolean;
   canUnlock: boolean;
   canUpgrade: boolean;
@@ -20,6 +21,7 @@ interface WheelCardProps {
 export const WheelCard: React.FC<WheelCardProps> = ({
   wheel,
   globalMultiplier,
+  actualWinChance,
   isFever,
   canUnlock,
   canUpgrade,
@@ -29,7 +31,7 @@ export const WheelCard: React.FC<WheelCardProps> = ({
   onUpgradeLevel,
 }) => {
   const currentReward = wheel.baseReward * wheel.level * globalMultiplier * (isFever ? 3 : 1);
-  const winPercent = isFever ? 100 : Math.round(wheel.winChance * 100);
+  const winPercent = Math.round(actualWinChance * 100);
 
   // 未解锁状态
   if (!wheel.unlocked) {
@@ -94,7 +96,7 @@ export const WheelCard: React.FC<WheelCardProps> = ({
             rotation={wheel.currentRotation}
             isSpinning={wheel.isSpinning}
             spinDuration={wheel.currentSpinDuration}
-            winChance={wheel.winChance}
+            winChance={actualWinChance}
             jackpotChance={wheel.jackpotChance}
             level={wheel.level}
             isFever={isFever}
