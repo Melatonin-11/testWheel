@@ -11,7 +11,7 @@ interface PrestigeTabProps {
   totalCoinsEarned: number;
   unlockedRelics: Record<string, boolean>;
   onPrestige: () => void;
-  onBuyRelic: (relicId: string, cost: number) => void;
+  onBuyRelic: (relicId: string) => void;
   onResetSave?: () => void;
 }
 
@@ -150,7 +150,7 @@ export const PrestigeTab: React.FC<PrestigeTabProps> = ({
                 <button
                   onClick={() => {
                     if (canAfford) {
-                      onBuyRelic(relic.id, relic.cost);
+                      onBuyRelic(relic.id);
                       sound.playWin(3);
                     }
                   }}

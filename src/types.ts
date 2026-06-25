@@ -16,6 +16,10 @@ export interface WheelData {
   currentSpinDuration?: number;
   autoDealerLevel: number; // 0 = manual only, 1+ = auto spins
   autoSpeedMultiplier: number;
+  autoDealerCooldown?: number; // dealer delay timer (seconds)
+  autoDealerPaused?: boolean;  // toggle for dealer pausing
+  sectorSizeLevel?: number;    // individual sector size upgrade level (max 15)
+  themeLevel?: number;         // individual evolution/theme (0 to 5)
 }
 
 export interface UpgradeItem {
@@ -62,6 +66,7 @@ export interface GameState {
   upgrades: Record<string, number>; // upgradeId -> level
   relics: Record<string, boolean>; // relicId -> unlocked
   stats: GameStats;
+  saveVersion?: number;
 }
 
 export type TabType = 'wheels' | 'upgrades' | 'dealers' | 'prestige' | 'stats';

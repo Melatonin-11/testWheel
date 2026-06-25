@@ -7,8 +7,8 @@ import { Bot, Lock, Check } from 'lucide-react';
 interface DealersTabProps {
   wheels: WheelData[];
   coins: number;
-  onHireDealer: (wheelId: string, cost: number) => void;
-  onUpgradeDealer: (wheelId: string, cost: number) => void;
+  onHireDealer: (wheelId: string) => void;
+  onUpgradeDealer: (wheelId: string) => void;
 }
 
 export const DealersTab: React.FC<DealersTabProps> = ({
@@ -72,14 +72,14 @@ export const DealersTab: React.FC<DealersTabProps> = ({
                 <div className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 shadow-inner ${
                   isHired ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'
                 }`}>
-                  <Bot className={`w-6 h-6 ${isHired ? 'animate-bounce' : ''}`} />
+                  <Bot className={`w-6 h-6 ${isHired && !wheel.autoDealerPaused ? 'animate-bounce' : ''}`} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-sm text-slate-200 truncate">{wheel.name} 专属荷官</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {isHired
-                      ? `自动运转中 (手速加成: +${(level - 1) * 10}%)`
-                      : '自动帮您无缝转动此轮盘'}
+                      ? `${wheel.autoDealerPaused ? '⏸ 发牌已暂停' : '▶ 全自动发牌中'} (基础间隔: ${Math.max(1, 11 - level)}秒)`
+                      : '自动帮您自动转动此轮盘'}
                   </p>
                 </div>
               </div>
@@ -88,7 +88,7 @@ export const DealersTab: React.FC<DealersTabProps> = ({
                 <button
                   onClick={() => {
                     if (canAffordHire) {
-                      onHireDealer(wheel.id, hireCost);
+                      onHireDealer(wheel.id);
                       sound.playJackpot();
                     }
                   }}
@@ -110,7 +110,7 @@ export const DealersTab: React.FC<DealersTabProps> = ({
                 <button
                   onClick={() => {
                     if (canAffordUpgrade) {
-                      onUpgradeDealer(wheel.id, upgradeCost);
+                      onUpgradeDealer(wheel.id);
                       sound.playWin(2);
                     }
                   }}

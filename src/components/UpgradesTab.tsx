@@ -7,7 +7,7 @@ import { Coins, PieChart, Sparkles, Flame, Zap, Check } from 'lucide-react';
 interface UpgradesTabProps {
   coins: number;
   upgradesLevels: Record<string, number>;
-  onBuyUpgrade: (id: string, cost: number) => void;
+  onBuyUpgrade: (id: string) => void;
 }
 
 export const UpgradesTab: React.FC<UpgradesTabProps> = ({
@@ -67,7 +67,7 @@ export const UpgradesTab: React.FC<UpgradesTabProps> = ({
               <button
                 onClick={() => {
                   if (canAfford) {
-                    onBuyUpgrade(item.id, currentCost);
+                    onBuyUpgrade(item.id);
                     sound.playWin(1.5);
                   }
                 }}

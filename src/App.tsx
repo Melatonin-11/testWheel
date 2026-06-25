@@ -10,6 +10,21 @@ import { PrestigeTab } from './components/PrestigeTab';
 import { OfflineModal } from './components/OfflineModal';
 import { sound } from './utils/sound';
 import { Dices, Sparkles } from 'lucide-react';
+import {
+  getGlobalMultiplier,
+  getWinChance,
+  getJackpotChance,
+  getSpinDuration,
+  getPrestigeTokensEarned,
+  getWheelUpgradeCost,
+  getDealerHireCost,
+  getDealerUpgradeCost,
+  getWheelSectorUpgradeCost,
+  getWheelEvolveCost,
+  getDealerInterval,
+  applyThemeToWheel,
+  migrateSave,
+} from './game/formulas';
 
 const SAVE_KEY = 'idle_wheel_tycoon_save_v1';
 const TICK_RATE = 0.05; // 50ms = 20 FPS game loop
@@ -21,48 +36,13 @@ export default function App() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          return {
-            ...parsed,
-            wheels: INITIAL_WHEELS.map((initWheel) => {
-              const savedWheel = parsed.wheels?.find((w: WheelData) => w.id === initWheel.id);
-              return savedWheel ? { ...initWheel, ...savedWheel, isSpinning: false } : initWheel;
-            }),
-            upgrades: parsed.upgrades || {},
-            relics: parsed.relics || {},
-            stats: parsed.stats || {
-              totalSpins: 0,
-              totalWins: 0,
-              totalJackpots: 0,
-              totalCoinsEarned: 0,
-              feverActivations: 0,
-              prestigeCount: 0,
-            },
-          };
+          return migrateSave(parsed);
         } catch {
           // fallback
         }
       }
     }
-    return {
-      coins: 50,
-      goldenTokens: 0,
-      feverEnergy: 0,
-      isFeverMode: false,
-      feverTimeRemaining: 0,
-      lastSaveTime: Date.now(),
-      soundEnabled: true,
-      wheels: INITIAL_WHEELS,
-      upgrades: {},
-      relics: {},
-      stats: {
-        totalSpins: 0,
-        totalWins: 0,
-        totalJackpots: 0,
-        totalCoinsEarned: 0,
-        feverActivations: 0,
-        prestigeCount: 0,
-      },
-    };
+    return migrateSave(null);
   });
 
   const [activeTab, setActiveTab] = useState<TabType>('wheels');
@@ -74,40 +54,6 @@ export default function App() {
   useEffect(() => {
     sound.enabled = state.soundEnabled;
   }, [state.soundEnabled]);
-
-  const getGlobalMultiplier = useCallback((s: GameState) => {
-    const baseMult = 1 + (s.upgrades['up_global_mult'] || 0) * 0.25;
-    const midasMult = s.relics['relic_midas'] ? 2.0 : 1.0;
-    const prestigeMult = 1 + s.goldenTokens * 0.20;
-    return baseMult * midasMult * prestigeMult;
-  }, []);
-
-  const getWinChance = useCallback((wheel: WheelData, s: GameState) => {
-    if (s.isFeverMode) return 1.0;
-    const upgradeBonus = (s.upgrades['up_sector_size'] || 0) * 0.04;
-    return Math.min(0.85, wheel.winChance + upgradeBonus);
-  }, []);
-
-  const getJackpotChance = useCallback((wheel: WheelData, s: GameState) => {
-    if (s.isFeverMode) return 0;
-    const upgradeBonus = (s.upgrades['up_jackpot_chance'] || 0) * 0.015;
-    return wheel.jackpotChance + upgradeBonus;
-  }, []);
-
-  const getSpinDuration = useCallback((wheel: WheelData, s: GameState) => {
-    let dur = wheel.spinDuration;
-    if (s.relics['relic_perpetual']) dur *= 0.7;
-    if (s.isFeverMode) dur /= 3;
-    if (wheel.autoDealerLevel > 0) {
-      const dealerSpeedBonus = 1 + (wheel.autoDealerLevel - 1) * 0.10 + (s.upgrades['up_auto_speed'] || 0) * 0.12;
-      dur /= dealerSpeedBonus;
-    }
-    return Math.max(0.3, dur);
-  }, []);
-
-  const getFeverDuration = useCallback((s: GameState) => {
-    return s.relics['relic_god_gambler'] ? 30 : 15;
-  }, []);
 
   useEffect(() => {
     const now = Date.now();
@@ -121,13 +67,13 @@ export default function App() {
       const globMult = getGlobalMultiplier(state);
 
       state.wheels.forEach((w) => {
-        if (w.unlocked && w.autoDealerLevel > 0) {
-          const spinDur = getSpinDuration(w, state);
+        if (w.unlocked && w.autoDealerLevel > 0 && !w.autoDealerPaused) {
+          const interval = getDealerInterval(w, state);
+          const spinDur = getSpinDuration(w, state) + 0.35 + interval;
           const winCh = getWinChance(w, state);
-          const jackpotCh = getJackpotChance(w, state);
-          const regularWinReward = w.baseReward * w.level * globMult;
-          const jackpotBonusReward = regularWinReward * 9 * jackpotCh;
-          const expectedRewardPerSpin = winCh * (regularWinReward + jackpotBonusReward);
+          const jackCh = getJackpotChance(w, state);
+          const expectedWinMult = 1 + 9 * jackCh;
+          const expectedRewardPerSpin = w.baseReward * w.level * globMult * winCh * expectedWinMult;
           totalOfflineRatePerSec += expectedRewardPerSpin / spinDur;
         }
       });
@@ -288,7 +234,7 @@ export default function App() {
                   nextFeverEnergy = Math.min(100, nextFeverEnergy + feverGain);
                   if (nextFeverEnergy >= 100) {
                     nextIsFever = true;
-                    nextFeverTime = getFeverDuration(prev);
+                    nextFeverTime = prev.relics['relic_god_gambler'] ? 30 : 15;
                     nextStats.feverActivations += 1;
                     sound.playFever();
                   }
@@ -300,10 +246,19 @@ export default function App() {
           } else if (w.cooldown > 0) {
             w.cooldown = Math.max(0, w.cooldown - TICK_RATE);
             stateChanged = true;
-          } else if (w.autoDealerLevel > 0) {
-            w = startWheelSpin(w, prev);
-            nextStats.totalSpins += 1;
-            stateChanged = true;
+          } else if (w.autoDealerLevel > 0 && !w.autoDealerPaused) {
+            if (w.autoDealerCooldown === undefined || w.autoDealerCooldown === null) {
+              w.autoDealerCooldown = getDealerInterval(w, prev);
+            }
+            if (w.autoDealerCooldown > 0) {
+              w.autoDealerCooldown = Math.max(0, w.autoDealerCooldown - TICK_RATE);
+              stateChanged = true;
+            } else {
+              w = startWheelSpin(w, prev);
+              nextStats.totalSpins += 1;
+              w.autoDealerCooldown = getDealerInterval(w, prev);
+              stateChanged = true;
+            }
           }
 
           return w;
@@ -324,7 +279,7 @@ export default function App() {
     }, TICK_RATE * 1000);
 
     return () => clearInterval(timer);
-  }, [getFeverDuration, startWheelSpin]);
+  }, [startWheelSpin]);
 
   useEffect(() => {
     const saveTimer = setInterval(() => {
@@ -364,7 +319,7 @@ export default function App() {
       const target = prev.wheels.find((w) => w.id === wheelId);
       if (!target || !target.unlocked) return prev;
 
-      const cost = Math.round((target.baseReward * 1.5 + 10) * Math.pow(1.15, target.level));
+      const cost = getWheelUpgradeCost(target);
       if (prev.coins < cost) return prev;
 
       return {
@@ -375,10 +330,70 @@ export default function App() {
     });
   };
 
-  const handleBuyUpgrade = (upgradeId: string, cost: number) => {
+  const handleUpgradeWheelSector = (wheelId: string) => {
     setState((prev) => {
+      const target = prev.wheels.find((w) => w.id === wheelId);
+      if (!target || !target.unlocked) return prev;
+
+      const lvl = target.sectorSizeLevel || 0;
+      if (lvl >= 15) return prev;
+
+      const cost = getWheelSectorUpgradeCost(target);
       if (prev.coins < cost) return prev;
+
+      return {
+        ...prev,
+        coins: prev.coins - cost,
+        wheels: prev.wheels.map((w) =>
+          w.id === wheelId ? { ...w, sectorSizeLevel: lvl + 1 } : w
+        ),
+      };
+    });
+  };
+
+  const handleEvolveWheel = (wheelId: string) => {
+    setState((prev) => {
+      const target = prev.wheels.find((w) => w.id === wheelId);
+      if (!target || !target.unlocked) return prev;
+
+      const cost = getWheelEvolveCost(target);
+      if (cost === null || prev.coins < cost) return prev;
+
+      const nextThemeLvl = (target.themeLevel || 0) + 1;
+
+      return {
+        ...prev,
+        coins: prev.coins - cost,
+        wheels: prev.wheels.map((w) => {
+          if (w.id === wheelId) {
+            const updated = { ...w, themeLevel: nextThemeLvl };
+            return applyThemeToWheel(updated);
+          }
+          return w;
+        }),
+      };
+    });
+  };
+
+  const handleToggleDealerPause = (wheelId: string) => {
+    setState((prev) => ({
+      ...prev,
+      wheels: prev.wheels.map((w) =>
+        w.id === wheelId ? { ...w, autoDealerPaused: !w.autoDealerPaused } : w
+      ),
+    }));
+  };
+
+  const handleBuyUpgrade = (upgradeId: string) => {
+    setState((prev) => {
+      const config = UPGRADES_LIST.find((u) => u.id === upgradeId);
+      if (!config) return prev;
       const currentLv = prev.upgrades[upgradeId] || 0;
+      if (currentLv >= config.maxLevel) return prev;
+
+      const cost = Math.round(config.cost * Math.pow(config.costMultiplier, currentLv));
+      if (prev.coins < cost) return prev;
+
       return {
         ...prev,
         coins: prev.coins - cost,
@@ -387,9 +402,14 @@ export default function App() {
     });
   };
 
-  const handleHireDealer = (wheelId: string, cost: number) => {
+  const handleHireDealer = (wheelId: string) => {
     setState((prev) => {
+      const target = prev.wheels.find((w) => w.id === wheelId);
+      if (!target || !target.unlocked || target.autoDealerLevel > 0) return prev;
+
+      const cost = getDealerHireCost(target);
       if (prev.coins < cost) return prev;
+
       return {
         ...prev,
         coins: prev.coins - cost,
@@ -398,9 +418,14 @@ export default function App() {
     });
   };
 
-  const handleUpgradeDealer = (wheelId: string, cost: number) => {
+  const handleUpgradeDealer = (wheelId: string) => {
     setState((prev) => {
+      const target = prev.wheels.find((w) => w.id === wheelId);
+      if (!target || !target.unlocked || target.autoDealerLevel === 0 || target.autoDealerLevel >= 10) return prev;
+
+      const cost = getDealerUpgradeCost(target);
       if (prev.coins < cost) return prev;
+
       return {
         ...prev,
         coins: prev.coins - cost,
@@ -411,9 +436,14 @@ export default function App() {
     });
   };
 
-  const handleBuyRelic = (relicId: string, cost: number) => {
+  const handleBuyRelic = (relicId: string) => {
     setState((prev) => {
-      if (prev.goldenTokens < cost || prev.relics[relicId]) return prev;
+      const config = RELICS_LIST.find((r) => r.id === relicId);
+      if (!config || prev.relics[relicId]) return prev;
+
+      const cost = config.cost;
+      if (prev.goldenTokens < cost) return prev;
+
       return {
         ...prev,
         goldenTokens: prev.goldenTokens - cost,
@@ -424,7 +454,9 @@ export default function App() {
 
   const handlePrestige = () => {
     setState((prev) => {
-      const earnedTokens = Math.max(0, Math.floor(Math.sqrt(prev.stats.totalCoinsEarned / 10000)));
+      const earnedTokens = getPrestigeTokensEarned(prev.stats.totalCoinsEarned);
+      if (earnedTokens <= 0) return prev;
+
       return {
         ...prev,
         coins: 100,
@@ -447,32 +479,13 @@ export default function App() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(SAVE_KEY);
     }
-    setState({
-      coins: 50,
-      goldenTokens: 0,
-      feverEnergy: 0,
-      isFeverMode: false,
-      feverTimeRemaining: 0,
-      lastSaveTime: Date.now(),
-      soundEnabled: true,
-      wheels: INITIAL_WHEELS,
-      upgrades: {},
-      relics: {},
-      stats: {
-        totalSpins: 0,
-        totalWins: 0,
-        totalJackpots: 0,
-        totalCoinsEarned: 0,
-        feverActivations: 0,
-        prestigeCount: 0,
-      },
-    });
+    setState(migrateSave(null));
   };
 
   const globMult = getGlobalMultiplier(state);
 
   return (
-    <div className="w-full min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-x-hidden pb-safe">
+    <div className="w-full min-h-screen bg-slate-950 sm:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] sm:from-indigo-950 sm:via-slate-900 sm:to-slate-950 text-slate-100 flex justify-center items-start sm:py-8 overflow-x-hidden select-none pb-safe">
       {offlineReward && (
         <OfflineModal
           coinsEarned={offlineReward.coins}
@@ -481,94 +494,108 @@ export default function App() {
         />
       )}
 
-      <Header
-        coins={state.coins}
-        goldenTokens={state.goldenTokens}
-        feverEnergy={state.feverEnergy}
-        isFeverMode={state.isFeverMode}
-        feverTimeRemaining={state.feverTimeRemaining}
-        feverDuration={getFeverDuration(state)}
-        soundEnabled={state.soundEnabled}
-        onToggleSound={() => setState((p) => ({ ...p, soundEnabled: !p.soundEnabled }))}
-        onResetSave={handleResetSave}
-      />
+      {/* 手机竖屏完美模拟容器 */}
+      <div className="w-full max-w-md min-h-screen sm:min-h-[850px] sm:max-h-[920px] sm:rounded-[36px] sm:shadow-[0_0_50px_rgba(0,0,0,0.85)] sm:border sm:border-slate-800/80 bg-slate-950 flex flex-col relative overflow-hidden">
+        
+        <Header
+          coins={state.coins}
+          goldenTokens={state.goldenTokens}
+          feverEnergy={state.feverEnergy}
+          isFeverMode={state.isFeverMode}
+          feverTimeRemaining={state.feverTimeRemaining}
+          soundEnabled={state.soundEnabled}
+          onToggleSound={() => setState((p) => ({ ...p, soundEnabled: !p.soundEnabled }))}
+          onResetSave={handleResetSave}
+          hasGodGambler={!!state.relics['relic_god_gambler']}
+        />
 
-      <main className="flex-1 max-w-md w-full mx-auto px-3 pt-3 flex flex-col gap-3">
-        {activeTab === 'wheels' && (
-          <div className="flex flex-col gap-3 pb-24 animate-fade-in">
-            <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Dices className="w-4 h-4 text-amber-400 shrink-0 animate-spin" />
-                <span className="text-slate-300">
-                  转动轮盘赚取金币！雇佣 <strong className="text-amber-300">发牌员</strong> 实现离线24小时全自动生钱。
-                </span>
+        <main className="flex-1 overflow-y-auto px-3 pt-3 flex flex-col gap-3 pb-24 scrollbar-thin">
+          {activeTab === 'wheels' && (
+            <div className="flex flex-col gap-3 animate-fade-in">
+              <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Dices className="w-4 h-4 text-amber-400 shrink-0 animate-spin" />
+                  <span className="text-slate-300">
+                    转动轮盘赚取金币！通过 <strong className="text-amber-300">扩张面积、升阶进化</strong> 自主创造海量流派，更有发牌员伴你狂飙。
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {state.wheels.map((wheel, idx) => {
+                  const prevWheel = idx > 0 ? state.wheels[idx - 1] : null;
+                  if (prevWheel && !prevWheel.unlocked) return null;
+
+                  const upgradeCost = getWheelUpgradeCost(wheel);
+                  const canUnlock = state.coins >= wheel.unlockCost;
+                  const canUpgrade = state.coins >= upgradeCost && wheel.unlocked;
+
+                  const actualWinChance = getWinChance(wheel, state);
+                  const actualJackpotChance = getJackpotChance(wheel, state);
+                  const actualSpinDuration = getSpinDuration(wheel, state);
+
+                  return (
+                    <WheelCard
+                      key={wheel.id}
+                      wheel={wheel}
+                      globalMultiplier={globMult}
+                      isFever={state.isFeverMode}
+                      actualWinChance={actualWinChance}
+                      actualJackpotChance={actualJackpotChance}
+                      actualSpinDuration={actualSpinDuration}
+                      canUnlock={canUnlock}
+                      canUpgrade={canUpgrade}
+                      upgradeCost={upgradeCost}
+                      coins={state.coins}
+                      onSpin={triggerSpin}
+                      onUnlock={handleUnlockWheel}
+                      onUpgradeLevel={handleUpgradeWheelLevel}
+                      onUpgradeSector={handleUpgradeWheelSector}
+                      onEvolve={handleEvolveWheel}
+                      onToggleDealerPause={handleToggleDealerPause}
+                    />
+                  );
+                })}
               </div>
             </div>
+          )}
 
-            <div className="flex flex-col gap-3">
-              {state.wheels.map((wheel, idx) => {
-                const prevWheel = idx > 0 ? state.wheels[idx - 1] : null;
-                if (prevWheel && !prevWheel.unlocked) return null;
+          {activeTab === 'upgrades' && (
+            <UpgradesTab
+              coins={state.coins}
+              upgradesLevels={state.upgrades}
+              onBuyUpgrade={handleBuyUpgrade}
+            />
+          )}
 
-                const upgradeCost = Math.round((wheel.baseReward * 1.5 + 10) * Math.pow(1.15, wheel.level));
-                const canUnlock = state.coins >= wheel.unlockCost;
-                const canUpgrade = state.coins >= upgradeCost && wheel.unlocked;
+          {activeTab === 'dealers' && (
+            <DealersTab
+              wheels={state.wheels}
+              coins={state.coins}
+              onHireDealer={handleHireDealer}
+              onUpgradeDealer={handleUpgradeDealer}
+            />
+          )}
 
-                return (
-                  <WheelCard
-                    key={wheel.id}
-                    wheel={wheel}
-                    globalMultiplier={globMult}
-                    actualWinChance={getWinChance(wheel, state)}
-                    isFever={state.isFeverMode}
-                    canUnlock={canUnlock}
-                    canUpgrade={canUpgrade}
-                    upgradeCost={upgradeCost}
-                    onSpin={triggerSpin}
-                    onUnlock={handleUnlockWheel}
-                    onUpgradeLevel={handleUpgradeWheelLevel}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        )}
+          {activeTab === 'prestige' && (
+            <PrestigeTab
+              coins={state.coins}
+              goldenTokens={state.goldenTokens}
+              totalCoinsEarned={state.stats.totalCoinsEarned}
+              unlockedRelics={state.relics}
+              onPrestige={handlePrestige}
+              onBuyRelic={handleBuyRelic}
+              onResetSave={handleResetSave}
+            />
+          )}
+        </main>
 
-        {activeTab === 'upgrades' && (
-          <UpgradesTab
-            coins={state.coins}
-            upgradesLevels={state.upgrades}
-            onBuyUpgrade={handleBuyUpgrade}
-          />
-        )}
-
-        {activeTab === 'dealers' && (
-          <DealersTab
-            wheels={state.wheels}
-            coins={state.coins}
-            onHireDealer={handleHireDealer}
-            onUpgradeDealer={handleUpgradeDealer}
-          />
-        )}
-
-        {activeTab === 'prestige' && (
-          <PrestigeTab
-            coins={state.coins}
-            goldenTokens={state.goldenTokens}
-            totalCoinsEarned={state.stats.totalCoinsEarned}
-            unlockedRelics={state.relics}
-            onPrestige={handlePrestige}
-            onBuyRelic={handleBuyRelic}
-            onResetSave={handleResetSave}
-          />
-        )}
-      </main>
-
-      <BottomNav
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        canPrestige={state.stats.totalCoinsEarned >= 10000}
-      />
+        <BottomNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          canPrestige={state.stats.totalCoinsEarned >= 10000}
+        />
+      </div>
     </div>
   );
 }
